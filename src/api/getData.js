@@ -350,3 +350,31 @@ export const getChatMsg = params => {
     data: params
   }).then(res => res.data)
 }
+
+// zcy:聊天
+export const chat = (msg) => {
+  return axios({
+    method: 'post',
+    baseURL: `http://10.201.100.213:8081/chat`,
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    data: JSON.stringify({"question":msg})
+  }).then(res => {
+    return res.data.result
+  })
+}
+
+// zcy:上传文件
+export const upload = (file) => {
+  return axios({
+    method: 'post',
+    baseURL: `http://10.11.9.100:8080/zcy/obs/file2/upload`,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    data: {"bizCode":1087,"fileName":"record.wav","attachment":false,"files":file}
+  }).then(res => {
+    return res.data.result.downloadUrl
+  })
+}

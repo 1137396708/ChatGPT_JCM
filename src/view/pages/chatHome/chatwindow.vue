@@ -104,10 +104,10 @@
           <img src="@/assets/img/emoji/smiling-face.png" alt="" />
         </div>
         <!--录音-->
-        <div class="luyin boxinput" @click="stopRecording" v-if="recording" v-show="buttonStatus">
+        <div class="luyin boxinput" @click="stopRecordingAsr" v-if="recording" v-show="buttonStatus">
           <i class="el-icon-microphone" style="margin-top: 17%;"></i>
         </div>
-        <div class="luyin boxinput" @click="startRecording" v-if="!recording" v-show="buttonStatus">
+        <div class="luyin boxinput" @click="startRecordingAsr" v-if="!recording" v-show="buttonStatus">
           <i class="el-icon-turn-off-microphone" style="margin-top: 17%;"></i>
         </div>
         <!--emo表情列表-->
@@ -134,7 +134,17 @@
 
 <script>
 import { animation, getNowTime, JCMFormatDate } from "@/util/util";
-import { getChatMsg, getCompletion, getChatCompletion, createImage, createImageEdit, createImageVariations, createTranscription, createTranslation } from "@/api/getData";
+import {
+  getChatMsg,
+  getCompletion,
+  getChatCompletion,
+  createImage,
+  createImageEdit,
+  createImageVariations,
+  createTranscription,
+  createTranslation,
+  chat
+} from "@/api/getData";
 import HeadPortrait from "@/components/HeadPortrait";
 import Emoji from "@/components/Emoji";
 import FileCard from "@/components/FileCard.vue";
@@ -180,6 +190,10 @@ export default {
       updateImage: null,
       // 是否隐藏对话框上方介绍（空间局促时隐藏）
       personInfoSpan: [2, 17, 5],
+      //zcy:语音识别翻译片段
+      runtimeTranscription_: "",
+      //zcy:语音识别语言
+      lang_: "cmn-Hans-CN"
     };
   },
   mounted() {
@@ -278,6 +292,47 @@ export default {
           message: "获取音频流失败啦！",
         });
       });
+    },
+    //zcy:开始asr录音
+    startRecordingAsr(){
+      this.recording = true
+      this.startSpeechToTxt()
+      this.$message({message: "开始录音咯！",});
+    },
+    //zcy:停止录音
+    async stopRecordingAsr() {
+      this.recording = false
+      this.recognition.stop()
+      this.$message({
+        message: "结束录音咯！",
+      });
+    },
+    //zcy:startSpeechToTxt
+    startSpeechToTxt() {
+      // initialisation of voicereco
+      window.SpeechRecognition =
+          window.SpeechRecognition ||
+          window.webkitSpeechRecognition;
+      this.recognition = new window.SpeechRecognition();
+      this.recognition.lang = this.lang_;
+      this.recognition.interimResults = true;
+      // event current voice reco word
+      this.recognition.addEventListener("result", event => {
+        var text = Array.from(event.results)
+            .map(result => result[0])
+            .map(result => result.transcript)
+            .join("");
+        this.runtimeTranscription_ = text;
+      });
+      // end of transcription
+      this.recognition.addEventListener("end", event => {
+        this.inputMsg = this.inputMsg + this.runtimeTranscription_;
+        this.runtimeTranscription_ = "";
+        if (this.inputMsg) {
+          this.sendText()
+        }
+      });
+      this.recognition.start();
     },
     //停止录音
     async stopRecording() {
@@ -482,52 +537,61 @@ export default {
       const currentResLocation = this.chatList.length - 1
       let _this = this
       try {
-        await fetch(
-          base.baseUrl + '/v1/chat/completions', {
-          method: "POST",
-          body: JSON.stringify({
-            ...params
-          }),
-          headers: {
-            Authorization: 'Bearer ' + this.settingInfo.KeyMsg,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-        }
-        ).then(response => {
-          const reader = response.body.getReader();
-
-          function readStream(reader) {
-            return reader.read().then(({ done, value }) => {
-              if (done) {
-                return;
-              }
-              if (!_this.chatList[currentResLocation].reminder) {
-                _this.chatList[currentResLocation].reminder = "";
-              }
-              let decoded = new TextDecoder().decode(value);
-              decoded = _this.chatList[currentResLocation].reminder + decoded;
-              let decodedArray = decoded.split("data: ");
-
-              decodedArray.forEach(decoded => {
-                if (decoded !== "") {
-                  if (decoded.trim() === "[DONE]") {
-                    return;
-                  } else {
-                    const response = JSON.parse(decoded).choices[0].delta.content ? JSON.parse(decoded).choices[0].delta.content : "";
-                    _this.chatList[currentResLocation].msg = _this.chatList[currentResLocation].msg + response
-                    _this.scrollBottom();
-                  }
-                }
-              });
-              return readStream(reader);
-            });
+        //zcy:chat
+        chat(params.messages[params.messages.length-1].content).then(data =>{
+          _this.chatList[currentResLocation].msg=_this.chatList[currentResLocation].msg+data
+          this.acqStatus = true;
+          if (this.recording){
+            this.recognition.start();
           }
-          readStream(reader);
-          this.$nextTick(() => {
-            this.acqStatus = true
-          });
-        });
+        })
+        this.acqStatus = true;
+        // await fetch(
+        //   base.baseUrl + '/v1/chat/completions', {
+        //   method: "POST",
+        //   body: JSON.stringify({
+        //     ...params
+        //   }),
+        //   headers: {
+        //     Authorization: 'Bearer ' + this.settingInfo.KeyMsg,
+        //     "Content-Type": "application/json",
+        //     Accept: "application/json",
+        //   },
+        // }
+        // ).then(response => {
+        //   const reader = response.body.getReader();
+        //
+        //   function readStream(reader) {
+        //     return reader.read().then(({ done, value }) => {
+        //       if (done) {
+        //         return;
+        //       }
+        //       if (!_this.chatList[currentResLocation].reminder) {
+        //         _this.chatList[currentResLocation].reminder = "";
+        //       }
+        //       let decoded = new TextDecoder().decode(value);
+        //       decoded = _this.chatList[currentResLocation].reminder + decoded;
+        //       let decodedArray = decoded.split("data: ");
+        //
+        //       decodedArray.forEach(decoded => {
+        //         if (decoded !== "") {
+        //           if (decoded.trim() === "[DONE]") {
+        //             return;
+        //           } else {
+        //             const response = JSON.parse(decoded).choices[0].delta.content ? JSON.parse(decoded).choices[0].delta.content : "";
+        //             _this.chatList[currentResLocation].msg = _this.chatList[currentResLocation].msg + response
+        //             _this.scrollBottom();
+        //           }
+        //         }
+        //       });
+        //       return readStream(reader);
+        //     });
+        //   }
+        //   readStream(reader);
+        //   this.$nextTick(() => {
+        //     this.acqStatus = true
+        //   });
+        // });
       } catch (error) {
         console.error(error);
       }
@@ -541,54 +605,63 @@ export default {
       const currentResLocation = this.chatList.length - 1
       let _this = this
       try {
-        await fetch(
-          base.baseUrl + '/v1/completions', {
-          method: "POST",
-          body: JSON.stringify({
-            ...params
-          }),
-          headers: {
-            Authorization: 'Bearer ' + this.settingInfo.KeyMsg,
-            "Content-Type": "application/json"
-          },
-        }
-        ).then(response => {
-          if(response.status==404){
-            this.$message.error("模型已被删除或已取消...")
-            this.$nextTick(() => {
-              this.acqStatus = true
-            });
-            return
+        //zcy:chat
+        chat(params.prompt).then(data =>{
+          _this.chatList[currentResLocation].msg=_this.chatList[currentResLocation].msg+data
+          this.acqStatus = true;
+          if (this.recording){
+            this.recognition.start();
           }
-          const reader = response.body.getReader();
-
-          function readStream(reader) {
-            return reader.read().then(({ done, value }) => {
-              if (done) {
-                return;
-              }
-              let decodeds = new TextDecoder().decode(value);
-
-              let decodedArray = decodeds.split("data: ")
-
-              decodedArray.forEach(decoded => {
-                if (decoded !== "") {
-                  if (decoded.trim() === "[DONE]") {
-                    return;
-                  } else {
-                    const response = JSON.parse(decoded).choices[0].text;
-                    _this.chatList[currentResLocation].msg = _this.chatList[currentResLocation].msg + response
-                  }
-                }
-              });
-              return readStream(reader);
-            });
-          }
-          this.$nextTick(() => {
-            this.acqStatus = true
-          });
-          readStream(reader);
         })
+        this.acqStatus = true;
+        // await fetch(
+        //   base.baseUrl + '/v1/completions', {
+        //   method: "POST",
+        //   body: JSON.stringify({
+        //     ...params
+        //   }),
+        //   headers: {
+        //     Authorization: 'Bearer ' + this.settingInfo.KeyMsg,
+        //     "Content-Type": "application/json"
+        //   },
+        // }
+        // ).then(response => {
+        //   if(response.status==404){
+        //     this.$message.error("模型已被删除或已取消...")
+        //     this.$nextTick(() => {
+        //       this.acqStatus = true
+        //     });
+        //     return
+        //   }
+        //   const reader = response.body.getReader();
+        //
+        //   function readStream(reader) {
+        //     return reader.read().then(({ done, value }) => {
+        //       if (done) {
+        //         return;
+        //       }
+        //       let decodeds = new TextDecoder().decode(value);
+        //
+        //       let decodedArray = decodeds.split("data: ")
+        //
+        //       decodedArray.forEach(decoded => {
+        //         if (decoded !== "") {
+        //           if (decoded.trim() === "[DONE]") {
+        //             return;
+        //           } else {
+        //             const response = JSON.parse(decoded).choices[0].text;
+        //             _this.chatList[currentResLocation].msg = _this.chatList[currentResLocation].msg + response
+        //           }
+        //         }
+        //       });
+        //       return readStream(reader);
+        //     });
+        //   }
+        //   this.$nextTick(() => {
+        //     this.acqStatus = true
+        //   });
+        //   readStream(reader);
+        // })
       } catch (error) {
         
       }
